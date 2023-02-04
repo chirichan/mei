@@ -1,4 +1,4 @@
-module pwdgen
+module github.com/chirichan/mei
 
 go 1.19
 
