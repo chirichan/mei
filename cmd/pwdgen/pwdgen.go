@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	length = flag.Int("length", 16, "生成的密码长度, 【6, 2048】")
-	level  = flag.Int("level", 4, "生成的密码强度等级, 数字越大, 强度越高, 【1, 4】")
+	length = flag.Int("len", 16, "生成的密码长度, 【6, 2048】")
+	level  = flag.Int("lv", 4, "生成的密码强度等级, 数字越大, 强度越高, 【1, 4】")
 )
 
 func main() {
