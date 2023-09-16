@@ -22,13 +22,13 @@ func TestFullPassword(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := FullPassword(tt.args.level, tt.args.length)
+			got, err := fullPassword(tt.args.level, tt.args.length)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("FullPassword() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("fullPassword() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if len(got) != tt.args.length {
-				t.Errorf("FullPassword() = %v, want %v", got, tt.want)
+				t.Errorf("fullPassword() = %v, want %v", got, tt.want)
 			}
 		})
 	}

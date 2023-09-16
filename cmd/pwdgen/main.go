@@ -4,31 +4,13 @@ import (
 	"crypto/rand"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"math/big"
 
 	"github.com/atotto/clipboard"
 )
-
-var (
-	length = flag.Int("len", 16, "生成的密码长度, 【6, 2048】")
-	level  = flag.Int("lv", 4, "生成的密码强度等级, 数字越大, 强度越高, 【1, 4】")
-)
-
-func main() {
-
-	flag.Parse()
-
-	s, err := FullPassword(*level, *length)
-	if err != nil {
-		log.Fatalf("err: %v\n", err)
-	}
-
-	if err := clipboard.WriteAll(s); err != nil {
-		log.Fatalf("err: %v\n", err)
-	}
-}
 
 const (
 	// LowerLetters is the list of lowercase letters.
@@ -52,7 +34,13 @@ const (
 	_defaultNumSymbols      = 4
 )
 
-type FullPasswordConf struct {
+var (
+	length = flag.Int("n", 16, "生成的密码长度, 【6, 2048】")
+	level  = flag.Int("v", 4, "生成的密码强度等级, 数字越大, 强度越高, 【1, 4】")
+	output = flag.Int("o", 1, "输出方式，1: 剪贴板，2: 控制台")
+)
+
+type fullPasswordConf struct {
 	Length          int
 	NumLowerLetters int
 	NumUpperLetters int
@@ -60,35 +48,27 @@ type FullPasswordConf struct {
 	NumSymbols      int
 }
 
-func SetLevel(level, length int) FullPasswordConf {
+func main() {
 
-	var fullConf FullPasswordConf
+	flag.Parse()
 
-	if level == 1 {
-		fullConf.NumDigits = length
-	} else if level == 2 {
-		fullConf.NumLowerLetters = length / 2
-		fullConf.NumDigits = length - fullConf.NumLowerLetters
-	} else if level == 3 {
-		fullConf.NumDigits = length / 3
-		fullConf.NumUpperLetters = (length - fullConf.NumDigits) / 2
-		fullConf.NumLowerLetters = length - fullConf.NumDigits - fullConf.NumUpperLetters
-	} else if level == 4 {
-		fullConf.NumDigits = length / 5
-		fullConf.NumUpperLetters = length / 4
-		fullConf.NumLowerLetters = length / 4
-		fullConf.NumSymbols = length - fullConf.NumDigits - fullConf.NumUpperLetters - fullConf.NumLowerLetters
-	} else {
-		fullConf.Length = _defaultLength
-		fullConf.NumLowerLetters = _defaultNumLowerLetters
-		fullConf.NumUpperLetters = _defaultNumUpperLetters
-		fullConf.NumDigits = _defaultNumDigits
-		fullConf.NumSymbols = _defaultNumSymbols
+	s, err := fullPassword(*level, *length)
+	if err != nil {
+		log.Fatalf("err: %v\n", err)
 	}
-	return fullConf
+
+	if *output == 1 {
+		if err := clipboard.WriteAll(s); err != nil {
+			log.Fatalf("err: %v\n", err)
+		}
+	} else if *output == 2 {
+		fmt.Println(s)
+	} else {
+		log.Fatalf("output param err: not support %d\n", *output)
+	}
 }
 
-func FullPassword(level, length int) (string, error) {
+func fullPassword(level, length int) (string, error) {
 
 	if level < 1 || level > 4 {
 		return "", errors.New("level must range 1-4")
@@ -105,7 +85,7 @@ func FullPassword(level, length int) (string, error) {
 		read   = rand.Reader
 	)
 
-	var fullConf = SetLevel(level, length)
+	var fullConf = setLevel(level, length)
 
 	// Characters
 	for i := 0; i < fullConf.NumLowerLetters; i++ {
@@ -159,6 +139,34 @@ func FullPassword(level, length int) (string, error) {
 	}
 
 	return result, nil
+}
+
+func setLevel(level, length int) fullPasswordConf {
+
+	var fullConf fullPasswordConf
+
+	if level == 1 {
+		fullConf.NumDigits = length
+	} else if level == 2 {
+		fullConf.NumLowerLetters = length / 2
+		fullConf.NumDigits = length - fullConf.NumLowerLetters
+	} else if level == 3 {
+		fullConf.NumDigits = length / 3
+		fullConf.NumUpperLetters = (length - fullConf.NumDigits) / 2
+		fullConf.NumLowerLetters = length - fullConf.NumDigits - fullConf.NumUpperLetters
+	} else if level == 4 {
+		fullConf.NumDigits = length / 5
+		fullConf.NumUpperLetters = length / 4
+		fullConf.NumLowerLetters = length / 4
+		fullConf.NumSymbols = length - fullConf.NumDigits - fullConf.NumUpperLetters - fullConf.NumLowerLetters
+	} else {
+		fullConf.Length = _defaultLength
+		fullConf.NumLowerLetters = _defaultNumLowerLetters
+		fullConf.NumUpperLetters = _defaultNumUpperLetters
+		fullConf.NumDigits = _defaultNumDigits
+		fullConf.NumSymbols = _defaultNumSymbols
+	}
+	return fullConf
 }
 
 // randomInsert randomly inserts the given value into the given string.
