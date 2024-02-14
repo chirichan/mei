@@ -65,88 +65,106 @@ func main() {
 		*outputDir = filepath.Join(getHomeDir(), "Pictures", "Saved Pictures", "BingImages")
 	}
 	log.Printf("output dir: %s\n", *outputDir)
-
-	if err := os.MkdirAll(*outputDir, 0755); err != nil {
+	if err := os.MkdirAll(*outputDir, 0644); err != nil {
 		log.Fatalf("create dir %s err: %+v", *outputDir, err)
 	}
 
 	var wg = &sync.WaitGroup{}
+	var imageChan = make(chan Image)
 	for _, v := range urls {
 		wg.Add(1)
-		go func(wg *sync.WaitGroup, v, outputDir string) {
-			defer wg.Done()
-			if err := downloadImage(v, outputDir); err != nil {
-				log.Printf("err: %+v", err)
-			}
-		}(wg, v, *outputDir)
+		go requestBingAPI(wg, v, imageChan)
+	}
+	go func() {
+		wg.Wait()
+		close(imageChan)
+		log.Println("image chan closed")
+	}()
+	var images []Image
+	for res := range imageChan {
+		images = append(images, res)
+	}
+	saveImageJson(images)
+
+	for _, image := range images {
+		wg.Add(1)
+		go downloadAndSaveBingImage(wg, image)
 	}
 	wg.Wait()
 }
 
-func downloadImage(u, outputDir string) error {
-	body, err := getBody(u)
+func saveImageJson(images []Image) error {
+	// TODO save json by year
+	return nil
+}
+
+func requestBingAPI(wg *sync.WaitGroup, url string, imageChan chan Image) {
+	defer wg.Done()
+
+	body, err := getBody(url)
 	if err != nil {
-		return fmt.Errorf("get body %s err: %w", u, err)
+		log.Printf("get body %s err: %v", url, err)
+		return
 	}
 	var hpa HPImageArchive
 	if err := json.Unmarshal(body, &hpa); err != nil {
-		return fmt.Errorf("json unmarshal body into hpa err: %w", err)
+		log.Printf("json unmarshal body into hpa err: %v", err)
+		return
 	}
-	var wg = &sync.WaitGroup{}
-	for _, image := range hpa.Images {
-		wg.Add(1)
-		go func(wg *sync.WaitGroup, image Image) {
-			defer wg.Done()
-			hdUrl := BaseUrl + image.Urlbase + "_1920x1080.jpg"
-			uhdUrl := BaseUrl + image.Urlbase + "_UHD.jpg"
-			hd, err := url.Parse(hdUrl)
-			if err != nil {
-				log.Printf("parse url %s err: %+v", hdUrl, err)
-				return
-			}
-			uhd, err := url.Parse(uhdUrl)
-			if err != nil {
-				log.Printf("parse url %s err: %+v", uhdUrl, err)
-				return
-			}
-			filename1 := filepath.Join(outputDir, strings.TrimPrefix(hd.Query().Get("id"), "OHR."))
-			filename2 := filepath.Join(outputDir, strings.TrimPrefix(uhd.Query().Get("id"), "OHR."))
-			writeFunc := func(filename, imageUrl string) error {
-				begin := time.Now()
-				log.Printf("⏳ start save %s\n", filename)
-				if fileExists(filename) {
-					log.Printf("🧐 already exists %s\n", filename)
-					return nil
-				}
-				b, err := getBody(imageUrl)
-				if err != nil {
-					return fmt.Errorf("get body %s err: %w", imageUrl, err)
-				}
-				if err := write(filename, b); err != nil {
-					return fmt.Errorf("save %s err: %w", filename, err)
-				}
-				log.Printf("🎉 saved success %s, cost %s\n", filename, time.Since(begin))
-				return nil
-			}
-			var wg2 = &sync.WaitGroup{}
-			wg2.Add(2)
-			go func(wg2 *sync.WaitGroup, filename, url2 string) {
-				defer wg2.Done()
-				if err := writeFunc(filename, url2); err != nil {
-					log.Printf("err: %+v", err)
-				}
-			}(wg2, filename1, hdUrl)
-			go func(wg2 *sync.WaitGroup, filename, url2 string) {
-				defer wg2.Done()
-				if err := writeFunc(filename, url2); err != nil {
-					log.Printf("err: %+v", err)
-				}
-			}(wg2, filename2, uhdUrl)
-			wg2.Wait()
-		}(wg, image)
+
+	for _, v := range hpa.Images {
+		imageChan <- v
 	}
-	wg.Wait()
-	return nil
+}
+
+func downloadAndSaveBingImage(wg *sync.WaitGroup, image Image) {
+	defer wg.Done()
+	hdUrl := BaseUrl + image.Urlbase + "_1920x1080.jpg"
+	uhdUrl := BaseUrl + image.Urlbase + "_UHD.jpg"
+	hd, err := url.Parse(hdUrl)
+	if err != nil {
+		log.Printf("parse url %s err: %+v", hdUrl, err)
+		return
+	}
+	uhd, err := url.Parse(uhdUrl)
+	if err != nil {
+		log.Printf("parse url %s err: %+v", uhdUrl, err)
+		return
+	}
+	filename1 := filepath.Join(*outputDir, strings.TrimPrefix(hd.Query().Get("id"), "OHR."))
+	filename2 := filepath.Join(*outputDir, strings.TrimPrefix(uhd.Query().Get("id"), "OHR."))
+	writeFunc := func(filename, imageUrl string) error {
+		begin := time.Now()
+		log.Printf("⏳ start save %s\n", filename)
+		if fileExists(filename) {
+			log.Printf("🧐 already exists %s\n", filename)
+			return nil
+		}
+		b, err := getBody(imageUrl)
+		if err != nil {
+			return fmt.Errorf("get body %s err: %w", imageUrl, err)
+		}
+		if err := write(filename, b); err != nil {
+			return fmt.Errorf("save %s err: %w", filename, err)
+		}
+		log.Printf("🎉 saved success %s, cost %s\n", filename, time.Since(begin))
+		return nil
+	}
+	var wg2 = &sync.WaitGroup{}
+	wg2.Add(2)
+	go func(wg2 *sync.WaitGroup, filename, url2 string) {
+		defer wg2.Done()
+		if err := writeFunc(filename, url2); err != nil {
+			log.Printf("err: %+v", err)
+		}
+	}(wg2, filename1, hdUrl)
+	go func(wg2 *sync.WaitGroup, filename, url2 string) {
+		defer wg2.Done()
+		if err := writeFunc(filename, url2); err != nil {
+			log.Printf("err: %+v", err)
+		}
+	}(wg2, filename2, uhdUrl)
+	wg2.Wait()
 }
 
 func write(filename string, b []byte) error {
@@ -181,16 +199,6 @@ func getBody(url string) ([]byte, error) {
 }
 
 func getHomeDir() string {
-	var home string
-	if os.Getenv("HOME") != "" {
-		// Linux or Mac
-		home = os.Getenv("HOME")
-	} else if os.Getenv("USERPROFILE") != "" {
-		// Windows
-		home = os.Getenv("USERPROFILE")
-	} else if os.Getenv("HOMEDRIVE")+os.Getenv("HOMEPATH") != "" {
-		// Windows
-		home = os.Getenv("HOMEDRIVE") + os.Getenv("HOMEPATH")
-	}
-	return home
+	userHomeDir, _ := os.UserHomeDir()
+	return userHomeDir
 }
