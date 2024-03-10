@@ -13,16 +13,17 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/chirichan/rice"
 )
 
 const BaseUrl = "https://cn.bing.com"
 
-var urls = []string{
-	"https://cn.bing.com/HPImageArchive.aspx?format=js&idx=0&n=7",
-	"https://cn.bing.com/HPImageArchive.aspx?format=js&idx=8&n=8",
-}
-
 var (
+	urls = []string{
+		"https://cn.bing.com/HPImageArchive.aspx?format=js&idx=0&n=7",
+		"https://cn.bing.com/HPImageArchive.aspx?format=js&idx=8&n=8",
+	}
 	outputDir = flag.String("o", "", "Output directory, default output: \"~/Pictures/Saved Pictures/BingImages\"")
 )
 
@@ -62,7 +63,8 @@ type HPImageArchive struct {
 func main() {
 	flag.Parse()
 	if *outputDir == "" {
-		*outputDir = filepath.Join(getHomeDir(), "Pictures", "Saved Pictures", "BingImages")
+		_ = os.MkdirAll("BingImages", 0644)
+		*outputDir = "BingImages"
 	}
 	log.Printf("output dir: %s\n", *outputDir)
 	if err := os.MkdirAll(*outputDir, 0644); err != nil {
@@ -134,6 +136,9 @@ func downloadAndSaveBingImage(wg *sync.WaitGroup, image Image) {
 	filename1 := filepath.Join(*outputDir, strings.TrimPrefix(hd.Query().Get("id"), "OHR."))
 	filename2 := filepath.Join(*outputDir, strings.TrimPrefix(uhd.Query().Get("id"), "OHR."))
 	writeFunc := func(filename, imageUrl string) error {
+		if rice.FileExists(filename) {
+			return nil
+		}
 		begin := time.Now()
 		log.Printf("⏳ start save %s\n", filename)
 		if fileExists(filename) {

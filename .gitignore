@@ -49,6 +49,7 @@ release
 
 # Go workspace file
 go.work
+go.work.sum
 
 ##
 ## JetBrains Goland
