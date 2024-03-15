@@ -95,7 +95,7 @@ func main() {
 	wg.Wait()
 }
 
-func saveImageJson(images []Image) error {
+func saveImageJson(_ []Image) error {
 	// TODO save json by year
 	return nil
 }
