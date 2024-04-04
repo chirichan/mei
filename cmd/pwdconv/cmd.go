@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -81,7 +82,7 @@ func (m *PwdConvCLI) Csv2Xykey(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	cwd := filepath.Dir(os.Args[0])
-	m.Logger.Info("save", "file", cwd)
+	m.Logger.Info("save", "dir", cwd)
 	return os.WriteFile(fmt.Sprintf("xykey-%d.json", time.Now().Unix()), xyKeyBytes, 0644)
 }
 
@@ -91,8 +92,12 @@ func (m *PwdConvCLI) csv2Xykey(csvData []ChromeCSV) *XyKey {
 		Key:     make([]Key, len(csvData)),
 	}
 	for i, v := range csvData {
+		parse, err := url.Parse(v.URL)
+		if err != nil {
+			m.Logger.Error("parse csv name", "name", v.Name)
+		}
 		xyKey.Key[i] = Key{
-			Name:     v.Name,
+			Name:     parse.Hostname(),
 			Account:  v.Username,
 			Password: v.Password,
 			Url:      v.URL,

@@ -71,3 +71,4 @@ go.work.sum
 .DS_Store
 
 # Others
+testdata

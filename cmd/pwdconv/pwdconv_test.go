@@ -44,9 +44,9 @@ func TestParseHost(t *testing.T) {
 		{
 			name: "",
 			args: args{
-				host: "",
+				host: "https://github.com/",
 			},
-			want:    "",
+			want:    "github.com",
 			wantErr: false,
 		},
 	}
