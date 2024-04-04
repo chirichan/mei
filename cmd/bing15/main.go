@@ -32,21 +32,16 @@ func init() {
 }
 
 type Image struct {
-	Startdate     string   `json:"startdate"`
-	Fullstartdate string   `json:"fullstartdate"`
-	Enddate       string   `json:"enddate"`
-	Url           string   `json:"url"`
-	Urlbase       string   `json:"urlbase"`
-	Copyright     string   `json:"copyright"`
-	Copyrightlink string   `json:"copyrightlink"`
-	Title         string   `json:"title"`
-	Quiz          string   `json:"quiz"`
-	Wp            bool     `json:"wp"`
-	Hsh           string   `json:"hsh"`
-	Drk           int      `json:"drk"`
-	Top           int      `json:"top"`
-	Bot           int      `json:"bot"`
-	Hs            []string `json:"hs"`
+	Startdate     string `json:"startdate"`
+	Fullstartdate string `json:"fullstartdate"`
+	Enddate       string `json:"enddate"`
+	Url           string `json:"url"`
+	Urlbase       string `json:"urlbase"`
+	Copyright     string `json:"copyright"`
+	Copyrightlink string `json:"copyrightlink"`
+	Title         string `json:"title"`
+	Quiz          string `json:"quiz"`
+	Hsh           string `json:"hsh"`
 }
 
 type HPImageArchive struct {

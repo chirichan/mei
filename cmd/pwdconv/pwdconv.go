@@ -3,13 +3,8 @@ package main
 import (
 	"bufio"
 	"embed"
-	"io"
 	"net/url"
 	"strings"
-	"unicode"
-
-	"github.com/gocarina/gocsv"
-	"golang.org/x/net/idna"
 )
 
 //go:embed tlds-alpha-by-domain.txt
@@ -53,82 +48,4 @@ func ParseHost(host string) (string, error) {
 		return split[0], nil
 	}
 	return split[1], nil
-}
-
-func IsASCII(s string) bool {
-	for _, v := range s {
-		if !unicode.Is(unicode.ASCII_Hex_Digit, v) {
-			return false
-		}
-	}
-	return true
-}
-
-func EncodeToPunycode(chineseDomain string) (string, error) {
-	punycodeDomain, err := idna.ToASCII(chineseDomain)
-	if err != nil {
-		return "", err
-	}
-	return strings.ToUpper(punycodeDomain), nil
-}
-
-// XyKey version 8
-type XyKey struct {
-	Version int   `json:"version"`
-	Key     []Key `json:"key"`
-}
-
-type Key struct {
-	Name      string  `json:"name"`
-	Account   string  `json:"account"`
-	Password  string  `json:"password"`
-	Password2 string  `json:"password2"`
-	Url       string  `json:"url"`
-	Note      string  `json:"note"`
-	Extra     []Extra `json:"extra"`
-}
-
-type Extra struct {
-	Name    string `json:"name"`
-	Content string `json:"content"`
-}
-
-// ChromeCSV chrome, edge csv password
-type ChromeCSV struct {
-	Name     string `json:"name" csv:"name"`
-	URL      string `json:"url" csv:"url"`
-	Username string `json:"username" csv:"username"`
-	Password string `json:"password" csv:"password"`
-}
-
-func (c *ChromeCSV) GuessWhat() string {
-	return c.Name
-}
-
-func LoadChromeCSV(r io.Reader) ([]ChromeCSV, error) {
-	var temp []*ChromeCSV
-	if err := gocsv.Unmarshal(r, &temp); err != nil {
-		return nil, err
-	}
-	var res []ChromeCSV
-	for _, v := range temp {
-		res = append(res, *v)
-	}
-	return res, nil
-}
-
-func CSVToXykey(version int, csv []ChromeCSV) XyKey {
-	var xyKey = XyKey{
-		Version: version,
-		Key:     make([]Key, len(csv)),
-	}
-	for _, v := range csv {
-		var key Key
-		key.Name = v.Name
-		key.Account = v.Username
-		key.Password = v.Password
-		key.Url = v.URL
-		xyKey.Key = append(xyKey.Key, key)
-	}
-	return xyKey
 }

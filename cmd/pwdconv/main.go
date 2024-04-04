@@ -1,7 +1,11 @@
 package main
 
-import "fmt"
+import (
+	"context"
+
+	"github.com/spf13/cobra"
+)
 
 func main() {
-	fmt.Printf("%v\n", "hello")
+	cobra.CheckErr(NewCLI().ExecuteContext(context.Background()))
 }

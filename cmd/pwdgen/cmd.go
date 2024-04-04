@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/chirichan/mei/version"
 	"log"
 
 	"github.com/atotto/clipboard"
@@ -11,8 +12,8 @@ import (
 type PwdgenCLI struct{}
 
 func (m *PwdgenCLI) Root(cmd *cobra.Command, args []string) {
-	if version, _ := cmd.Flags().GetBool("version"); version {
-		fmt.Printf("pwdgen version is %s", Version)
+	if v, _ := cmd.Flags().GetBool("version"); v {
+		fmt.Printf("pwdgen version is %s", version.Version)
 		return
 	}
 	length, _ := cmd.Flags().GetInt("length")
