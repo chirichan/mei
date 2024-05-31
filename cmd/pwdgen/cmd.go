@@ -11,39 +11,12 @@ import (
 	"time"
 
 	"github.com/atotto/clipboard"
+	"github.com/chirichan/mei/cmd/pwdgen/internal/entities"
 	"github.com/chirichan/mei/version"
+	"github.com/chirichan/rice"
 	"github.com/gocarina/gocsv"
 	"github.com/spf13/cobra"
 )
-
-type XyKey struct {
-	Version int   `json:"version"`
-	Key     []Key `json:"key"`
-}
-
-type Key struct {
-	Name      string  `json:"name"`
-	Account   string  `json:"account"`
-	Password  string  `json:"password"`
-	Password2 string  `json:"password2"`
-	Url       string  `json:"url"`
-	Note      string  `json:"note"`
-	Extra     []Extra `json:"extra"`
-}
-
-type Extra struct {
-	Name    string `json:"name"`
-	Content string `json:"content"`
-}
-
-// ChromeCSV chrome, edge csv password
-type ChromeCSV struct {
-	Name     string `json:"name" csv:"name"`
-	URL      string `json:"url" csv:"url"`
-	Username string `json:"username" csv:"username"`
-	Password string `json:"password" csv:"password"`
-	Note     string `json:"note" csv:"note"`
-}
 
 type PwdGenCLI struct {
 	Logger *slog.Logger
@@ -73,7 +46,7 @@ func (m *PwdGenCLI) Root(cmd *cobra.Command, args []string) {
 }
 
 func (m *PwdGenCLI) Csv2Xykey(cmd *cobra.Command, args []string) error {
-	var csvData []ChromeCSV
+	var csvData []entities.ChromeCSV
 	if len(args) == 0 {
 		csvText, err := clipboard.ReadAll()
 		if err != nil {
@@ -103,26 +76,89 @@ func (m *PwdGenCLI) Csv2Xykey(cmd *cobra.Command, args []string) error {
 	return os.WriteFile(fmt.Sprintf("xykey-%d.json", time.Now().Unix()), xyKeyBytes, 0644)
 }
 
-func (m *PwdGenCLI) csv2Xykey(csvData []ChromeCSV) *XyKey {
-	xyKey := &XyKey{
+func (m *PwdGenCLI) csv2Xykey(csvData []entities.ChromeCSV) *entities.XyKey {
+	xyKey := &entities.XyKey{
 		Version: 1,
-		Key:     make([]Key, len(csvData)),
+		Key:     make([]entities.Key, len(csvData)),
 	}
 	for i, v := range csvData {
 		parse, err := url.Parse(v.URL)
 		if err != nil {
 			m.Logger.Error("parse csv name", "name", v.Name)
 		}
-		xyKey.Key[i] = Key{
+		xyKey.Key[i] = entities.Key{
 			Name:     parse.Hostname(),
 			Account:  v.Username,
 			Password: v.Password,
 			Url:      v.URL,
 			Note:     v.Note,
-			Extra:    make([]Extra, 0),
+			Extra:    make([]entities.Extra, 0),
 		}
 	}
 	return xyKey
+}
+
+func (m *PwdGenCLI) SplitFile(cmd *cobra.Command, args []string) error {
+
+	return nil
+}
+
+func (m *PwdGenCLI) EncryptFile(cmd *cobra.Command, args []string) error {
+	genKey, _ := cmd.Flags().GetBool("genkey")
+	key, _ := cmd.Flags().GetString("key")
+	file, _ := cmd.Flags().GetString("file")
+	text, _ := cmd.Flags().GetString("text")
+
+	if genKey {
+		randomHexString, err := rice.RandomHexString(32)
+		fmt.Println(randomHexString)
+		return err
+	}
+
+	if key == "" {
+		k, ok := os.LookupEnv("MEI_AES_KEY")
+		if !ok {
+			return fmt.Errorf("env var MEI_AES_KEY not set")
+		}
+		key = k
+	}
+
+	m.Logger.Info("encrypt", "key", key, "file", file, "text", text)
+
+	if text != "" {
+		encryptText, err := rice.AESGCMEncryptText(key, text)
+		if err != nil {
+			return fmt.Errorf("encrypt text err: %w", err)
+		}
+		fmt.Println(encryptText)
+	}
+
+	return nil
+}
+
+func (m *PwdGenCLI) DecryptFile(cmd *cobra.Command, args []string) error {
+	key, _ := cmd.Flags().GetString("key")
+	file, _ := cmd.Flags().GetString("file")
+	text, _ := cmd.Flags().GetString("text")
+
+	if key == "" {
+		k, ok := os.LookupEnv("MEI_AES_KEY")
+		if !ok {
+			return fmt.Errorf("env var MEI_AES_KEY not set")
+		}
+		key = k
+	}
+
+	m.Logger.Info("decrypt", "key", key, "file", file, "text", text)
+
+	if text != "" {
+		decryptText, err := rice.AESGCMDecryptText(key, text)
+		if err != nil {
+			return fmt.Errorf("decrypt text err: %w", err)
+		}
+		fmt.Println(decryptText)
+	}
+	return nil
 }
 
 func NewCLI() *cobra.Command {
@@ -145,8 +181,37 @@ func NewCLI() *cobra.Command {
 		RunE:  muCLI.Csv2Xykey,
 	}
 
+	splitFileCmd := &cobra.Command{
+		Use:   "splitfile",
+		Short: "把文件分割为若干小文件。",
+		RunE:  muCLI.SplitFile,
+	}
+	splitFileCmd.Flags().IntP("size", "s", 200, "每个文件的大小，单位：Mb")
+
+	encryptFileCmd := &cobra.Command{
+		Use:   "encrypt",
+		Short: "加密文本或文件",
+		RunE:  muCLI.EncryptFile,
+	}
+	encryptFileCmd.Flags().BoolP("genkey", "g", false, "生成一个 AES256 密钥")
+	encryptFileCmd.Flags().StringP("key", "k", "", "加密所需的密钥。如果不指定，则从环境变量 \"MEI_AES_KEY\" 中获取")
+	encryptFileCmd.Flags().StringP("file", "f", "", "要加密的文件或文件夹")
+	encryptFileCmd.Flags().StringP("text", "t", "", "要加密的文本")
+
+	decryptFileCmd := &cobra.Command{
+		Use:   "decrypt",
+		Short: "解密文本或文件",
+		RunE:  muCLI.DecryptFile,
+	}
+	decryptFileCmd.Flags().StringP("key", "k", "", "解密所需的密钥。如果不指定，则从环境变量 \"MEI_AES_KEY\" 中获取")
+	decryptFileCmd.Flags().StringP("file", "f", "", "要解密的文件或文件夹")
+	decryptFileCmd.Flags().StringP("text", "t", "", "要解密的文本")
+
 	rootCmd.AddCommand(
 		csv2XykeyCmd,
+		splitFileCmd,
+		encryptFileCmd,
+		decryptFileCmd,
 	)
 	return rootCmd
 }
