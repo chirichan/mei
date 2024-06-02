@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/atotto/clipboard"
@@ -108,10 +109,11 @@ func (m *PwdGenCLI) EncryptFile(cmd *cobra.Command, args []string) error {
 	key, _ := cmd.Flags().GetString("key")
 	file, _ := cmd.Flags().GetString("file")
 	text, _ := cmd.Flags().GetString("text")
+	begin := time.Now()
 
 	if genKey {
 		randomHexString, err := rice.RandomHexString(32)
-		fmt.Println(randomHexString)
+		fmt.Printf("生成的 AES key :\n\n%s\n\n妥善保存此密钥，此后的加密和解密都需要此密钥。\n", randomHexString)
 		return err
 	}
 
@@ -123,14 +125,27 @@ func (m *PwdGenCLI) EncryptFile(cmd *cobra.Command, args []string) error {
 		key = k
 	}
 
-	m.Logger.Info("encrypt", "key", key, "file", file, "text", text)
-
 	if text != "" {
 		encryptText, err := rice.AESGCMEncryptText(key, text)
 		if err != nil {
 			return fmt.Errorf("encrypt text err: %w", err)
 		}
 		fmt.Println(encryptText)
+	}
+
+	if !rice.FileExists(file) {
+		return fmt.Errorf("文件或文件夹不存在, file: %s", file)
+	}
+
+	if rice.PathIsDir(file) {
+		m.Logger.Info("暂不支持加密文件夹。")
+	} else {
+		if err := rice.AESGCMEncryptFile(key, file, file+".aes256"); err != nil {
+			return err
+		}
+		err := os.Remove(file)
+		m.Logger.Info("加密完成", "耗时", time.Since(begin))
+		return err
 	}
 
 	return nil
@@ -140,6 +155,7 @@ func (m *PwdGenCLI) DecryptFile(cmd *cobra.Command, args []string) error {
 	key, _ := cmd.Flags().GetString("key")
 	file, _ := cmd.Flags().GetString("file")
 	text, _ := cmd.Flags().GetString("text")
+	begin := time.Now()
 
 	if key == "" {
 		k, ok := os.LookupEnv("MEI_AES_KEY")
@@ -149,8 +165,6 @@ func (m *PwdGenCLI) DecryptFile(cmd *cobra.Command, args []string) error {
 		key = k
 	}
 
-	m.Logger.Info("decrypt", "key", key, "file", file, "text", text)
-
 	if text != "" {
 		decryptText, err := rice.AESGCMDecryptText(key, text)
 		if err != nil {
@@ -158,6 +172,22 @@ func (m *PwdGenCLI) DecryptFile(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Println(decryptText)
 	}
+
+	if !rice.FileExists(file) {
+		return fmt.Errorf("文件或文件夹不存在, file: %s", file)
+	}
+
+	if rice.PathIsDir(file) {
+		m.Logger.Info("暂不支持解密文件夹。")
+	} else {
+		if err := rice.AESGCMDecryptFile(key, file, strings.TrimSuffix(file, ".aes256")); err != nil {
+			return err
+		}
+		err := os.Remove(file)
+		m.Logger.Info("解密完成", "耗时", time.Since(begin))
+		return err
+	}
+
 	return nil
 }
 
@@ -193,7 +223,7 @@ func NewCLI() *cobra.Command {
 		Short: "加密文本或文件",
 		RunE:  muCLI.EncryptFile,
 	}
-	encryptFileCmd.Flags().BoolP("genkey", "g", false, "生成一个 AES256 密钥")
+	encryptFileCmd.Flags().BoolP("genkey", "g", false, "生成一个 AES256 密钥, 妥善保存此密钥，此后的加密和解密都需要此密钥。")
 	encryptFileCmd.Flags().StringP("key", "k", "", "加密所需的密钥。如果不指定，则从环境变量 \"MEI_AES_KEY\" 中获取")
 	encryptFileCmd.Flags().StringP("file", "f", "", "要加密的文件或文件夹")
 	encryptFileCmd.Flags().StringP("text", "t", "", "要加密的文本")
