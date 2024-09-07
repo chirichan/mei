@@ -1,3 +1,8 @@
 package version
 
-var Version = "0.1.2"
+var (
+	Version   string
+	BuildTime string
+	GitCommit string
+	GoVersion string
+)

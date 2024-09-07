@@ -7,16 +7,19 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/atotto/clipboard"
-	"github.com/chirichan/mei/cmd/pwdgen/internal/entities"
-	"github.com/chirichan/mei/version"
 	"github.com/chirichan/rice"
 	"github.com/gocarina/gocsv"
 	"github.com/spf13/cobra"
+
+	"github.com/chirichan/mei/cmd/pwdgen/internal/entities"
+	"github.com/chirichan/mei/version"
 )
 
 type PwdGenCLI struct {
@@ -151,6 +154,11 @@ func (m *PwdGenCLI) EncryptFile(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func (m *PwdGenCLI) zipDir(dir string) error {
+
+	return nil
+}
+
 func (m *PwdGenCLI) DecryptFile(cmd *cobra.Command, args []string) error {
 	key, _ := cmd.Flags().GetString("key")
 	file, _ := cmd.Flags().GetString("file")
@@ -177,6 +185,10 @@ func (m *PwdGenCLI) DecryptFile(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("文件或文件夹不存在, file: %s", file)
 	}
 
+	if !strings.HasSuffix(file, ".aes256") {
+		return fmt.Errorf("文件不是加密文件, file: %s", file)
+	}
+
 	if rice.PathIsDir(file) {
 		m.Logger.Info("暂不支持解密文件夹。")
 	} else {
@@ -189,6 +201,35 @@ func (m *PwdGenCLI) DecryptFile(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func (m *PwdGenCLI) KillProcess(cmd *cobra.Command, args []string) error {
+
+	pNames, err := cmd.Flags().GetStringSlice("name")
+	if err != nil {
+		return err
+	}
+	for {
+		var execCmd *exec.Cmd
+		goos := runtime.GOOS
+		for _, processName := range pNames {
+			switch goos {
+			case "windows":
+				// taskkill.exe /IM WeChatAppEx.exe /F
+				execCmd = exec.Command("taskkill", "/IM", processName+".exe", "/F")
+			case "linux", "darwin":
+				execCmd = exec.Command("pkill", processName)
+			default:
+				return fmt.Errorf("unsupported platform")
+			}
+			slog.Info("killing process...", "processName", processName, "os", goos)
+			err := execCmd.Run()
+			if err != nil {
+				slog.Error("exec cmd", "err", err)
+			}
+		}
+		time.Sleep(time.Second)
+	}
 }
 
 func NewCLI() *cobra.Command {
@@ -216,17 +257,18 @@ func NewCLI() *cobra.Command {
 		Short: "把文件分割为若干小文件。",
 		RunE:  muCLI.SplitFile,
 	}
-	splitFileCmd.Flags().IntP("size", "s", 200, "每个文件的大小，单位：Mb")
+	splitFileCmd.Flags().IntP("size", "s", 200, "每个文件的大小, 单位: Mb")
 
 	encryptFileCmd := &cobra.Command{
 		Use:   "encrypt",
 		Short: "加密文本或文件",
 		RunE:  muCLI.EncryptFile,
 	}
-	encryptFileCmd.Flags().BoolP("genkey", "g", false, "生成一个 AES256 密钥, 妥善保存此密钥，此后的加密和解密都需要此密钥。")
+	encryptFileCmd.Flags().BoolP("genkey", "g", false, "生成一个 AES256 密钥")
 	encryptFileCmd.Flags().StringP("key", "k", "", "加密所需的密钥。如果不指定，则从环境变量 \"MEI_AES_KEY\" 中获取")
 	encryptFileCmd.Flags().StringP("file", "f", "", "要加密的文件或文件夹")
 	encryptFileCmd.Flags().StringP("text", "t", "", "要加密的文本")
+	encryptFileCmd.Flags().StringP("ignore", "i", "", "ignore 文件【暂未实现】")
 
 	decryptFileCmd := &cobra.Command{
 		Use:   "decrypt",
@@ -236,12 +278,21 @@ func NewCLI() *cobra.Command {
 	decryptFileCmd.Flags().StringP("key", "k", "", "解密所需的密钥。如果不指定，则从环境变量 \"MEI_AES_KEY\" 中获取")
 	decryptFileCmd.Flags().StringP("file", "f", "", "要解密的文件或文件夹")
 	decryptFileCmd.Flags().StringP("text", "t", "", "要解密的文本")
+	decryptFileCmd.MarkFlagsOneRequired("file", "text")
+
+	killCmd := &cobra.Command{
+		Use:   "kill",
+		Short: "杀掉指定的进程",
+		RunE:  muCLI.KillProcess,
+	}
+	killCmd.Flags().StringP("name", "n", "", "进程名列表")
 
 	rootCmd.AddCommand(
 		csv2XykeyCmd,
 		splitFileCmd,
 		encryptFileCmd,
 		decryptFileCmd,
+		killCmd,
 	)
 	return rootCmd
 }
