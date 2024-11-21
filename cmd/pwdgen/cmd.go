@@ -1,8 +1,10 @@
 package main
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net/url"
@@ -136,27 +138,106 @@ func (m *PwdGenCLI) EncryptFile(cmd *cobra.Command, args []string) error {
 		fmt.Println(encryptText)
 	}
 
-	if !rice.FileExists(file) {
+	if !rice.PathExists(file) {
 		return fmt.Errorf("文件或文件夹不存在, file: %s", file)
 	}
 
 	if rice.PathIsDir(file) {
-		m.Logger.Info("暂不支持加密文件夹。")
+
+		absPath, _ := filepath.Abs(file)
+		parentPath := filepath.Dir(absPath)
+		zipFilename := filepath.Join(parentPath, filepath.Base(file)+".zip")
+
+		if err := zipFolder(file, zipFilename); err != nil {
+			m.Logger.Error("zip folder err", "err", err)
+			return err
+		}
+
+		m.Logger.Info("zip folder success", "file", file, "cost", time.Since(begin), "zip_filename", zipFilename)
+
+		if err := rice.AESGCMEncryptFile(key, zipFilename, zipFilename+".aes256"); err != nil {
+			return err
+		}
+		if err := os.Remove(zipFilename); err != nil {
+			return err
+		}
+		m.Logger.Info("encrypt folder success", "cost", time.Since(begin), "output", zipFilename+".aes256")
+
 	} else {
 		if err := rice.AESGCMEncryptFile(key, file, file+".aes256"); err != nil {
 			return err
 		}
 		err := os.Remove(file)
-		m.Logger.Info("加密完成", "耗时", time.Since(begin))
+		m.Logger.Info("encrypt file success", "cost", time.Since(begin), "output", file+".aes256")
 		return err
 	}
 
 	return nil
 }
 
-func (m *PwdGenCLI) zipDir(dir string) error {
+// zipFolder 压缩文件夹
+func zipFolder(sourceDir, zipFile string) error {
+	// 创建目标 ZIP 文件
+	zipFileWriter, err := os.Create(zipFile)
+	if err != nil {
+		return err
+	}
+	defer zipFileWriter.Close()
 
-	return nil
+	// 创建 ZIP Writer
+	zipWriter := zip.NewWriter(zipFileWriter)
+	defer zipWriter.Close()
+
+	// 遍历目录并添加文件到 ZIP
+	err = filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// 计算文件相对路径
+		relPath, err := filepath.Rel(sourceDir, path)
+		if err != nil {
+			return err
+		}
+
+		// 忽略目录，直接处理文件
+		if info.IsDir() {
+			if relPath == "." {
+				// 忽略根目录自身
+				return nil
+			}
+			// 在 ZIP 中创建目录
+			_, err := zipWriter.Create(relPath + "/")
+			return err
+		}
+
+		// 创建文件头
+		fileHeader, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+		fileHeader.Name = relPath
+		fileHeader.Method = zip.Deflate // 使用压缩方式
+
+		// 创建文件写入器
+		writer, err := zipWriter.CreateHeader(fileHeader)
+		if err != nil {
+			return err
+		}
+
+		// 打开原始文件
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		// 将文件内容复制到 ZIP 中
+		_, err = io.Copy(writer, file)
+		return err
+	})
+
+	return err
 }
 
 func (m *PwdGenCLI) DecryptFile(cmd *cobra.Command, args []string) error {
