@@ -24,6 +24,8 @@ import (
 	"github.com/chirichan/mei/version"
 )
 
+const Aes256Suffix = ".aes256"
+
 type PwdGenCLI struct {
 	Logger *slog.Logger
 }
@@ -110,6 +112,9 @@ func (m *PwdGenCLI) SplitFile(cmd *cobra.Command, args []string) error {
 }
 
 func (m *PwdGenCLI) EncryptFile(cmd *cobra.Command, args []string) error {
+
+	m.Logger.Debug("encrypt cmd", "args", args)
+
 	genKey, _ := cmd.Flags().GetBool("genkey")
 	key, _ := cmd.Flags().GetString("key")
 	file, _ := cmd.Flags().GetString("file")
@@ -130,12 +135,13 @@ func (m *PwdGenCLI) EncryptFile(cmd *cobra.Command, args []string) error {
 		key = k
 	}
 
-	if text != "" {
+	if cmd.Flags().Changed("text") && text != "" {
 		encryptText, err := rice.AESGCMEncryptText(key, text)
 		if err != nil {
 			return fmt.Errorf("encrypt text err: %w", err)
 		}
 		fmt.Println(encryptText)
+		return nil
 	}
 
 	if !rice.PathExists(file) {
@@ -148,35 +154,35 @@ func (m *PwdGenCLI) EncryptFile(cmd *cobra.Command, args []string) error {
 		parentPath := filepath.Dir(absPath)
 		zipFilename := filepath.Join(parentPath, filepath.Base(file)+".zip")
 
-		if err := zipFolder(file, zipFilename); err != nil {
+		if err := ZipFolder(file, zipFilename); err != nil {
 			m.Logger.Error("zip folder err", "err", err)
 			return err
 		}
 
 		m.Logger.Info("zip folder success", "file", file, "cost", time.Since(begin), "zip_filename", zipFilename)
 
-		if err := rice.AESGCMEncryptFile(key, zipFilename, zipFilename+".aes256"); err != nil {
+		if err := rice.AESGCMEncryptFile(key, zipFilename, zipFilename+Aes256Suffix); err != nil {
 			return err
 		}
 		if err := os.Remove(zipFilename); err != nil {
 			return err
 		}
-		m.Logger.Info("encrypt folder success", "cost", time.Since(begin), "output", zipFilename+".aes256")
+		m.Logger.Info("encrypt folder success", "cost", time.Since(begin), "output", zipFilename+Aes256Suffix)
 
 	} else {
-		if err := rice.AESGCMEncryptFile(key, file, file+".aes256"); err != nil {
+		if err := rice.AESGCMEncryptFile(key, file, file+Aes256Suffix); err != nil {
 			return err
 		}
 		err := os.Remove(file)
-		m.Logger.Info("encrypt file success", "cost", time.Since(begin), "output", file+".aes256")
+		m.Logger.Info("encrypt file success", "cost", time.Since(begin), "output", file+Aes256Suffix)
 		return err
 	}
 
 	return nil
 }
 
-// zipFolder 压缩文件夹
-func zipFolder(sourceDir, zipFile string) error {
+// ZipFolder 压缩文件夹
+func ZipFolder(sourceDir, zipFile string) error {
 	// 创建目标 ZIP 文件
 	zipFileWriter, err := os.Create(zipFile)
 	if err != nil {
@@ -240,6 +246,63 @@ func zipFolder(sourceDir, zipFile string) error {
 	return err
 }
 
+func UnzipFolder(src, dest string) error {
+	// 打开 ZIP 文件
+	r, err := zip.OpenReader(src)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	// 遍历 ZIP 文件中的每个条目
+	for _, file := range r.File {
+		// 构造目标文件路径
+		filePath := filepath.Join(dest, file.Name)
+
+		// 检查目标路径是否安全
+		if !strings.HasPrefix(filePath, filepath.Clean(dest)+string(os.PathSeparator)) {
+			return fmt.Errorf("非法文件路径: %s", filePath)
+		}
+
+		// 如果是目录，则创建
+		if file.FileInfo().IsDir() {
+			err := os.MkdirAll(filePath, os.ModePerm)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+
+		// 如果是文件，则解压
+		err = os.MkdirAll(filepath.Dir(filePath), os.ModePerm) // 确保文件目录存在
+		if err != nil {
+			return err
+		}
+
+		// 打开 ZIP 文件内的文件
+		srcFile, err := file.Open()
+		if err != nil {
+			return err
+		}
+		defer srcFile.Close()
+
+		// 创建目标文件
+		destFile, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.Mode())
+		if err != nil {
+			return err
+		}
+		defer destFile.Close()
+
+		// 将内容写入目标文件
+		_, err = io.Copy(destFile, srcFile)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *PwdGenCLI) DecryptFile(cmd *cobra.Command, args []string) error {
 	key, _ := cmd.Flags().GetString("key")
 	file, _ := cmd.Flags().GetString("file")
@@ -260,22 +323,37 @@ func (m *PwdGenCLI) DecryptFile(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("decrypt text err: %w", err)
 		}
 		fmt.Println(decryptText)
+		return nil
 	}
 
-	if !rice.FileExists(file) {
+	if !rice.PathExists(file) {
 		return fmt.Errorf("文件或文件夹不存在, file: %s", file)
 	}
 
-	if !strings.HasSuffix(file, ".aes256") {
+	if !strings.HasSuffix(file, Aes256Suffix) {
 		return fmt.Errorf("文件不是加密文件, file: %s", file)
 	}
 
 	if rice.PathIsDir(file) {
-		m.Logger.Info("暂不支持解密文件夹。")
+		m.Logger.Info("这是一个文件夹，不支持解密")
+
 	} else {
-		if err := rice.AESGCMDecryptFile(key, file, strings.TrimSuffix(file, ".aes256")); err != nil {
+		outputFile := strings.TrimSuffix(file, Aes256Suffix)
+		if err := rice.AESGCMDecryptFile(key, file, outputFile); err != nil {
 			return err
 		}
+
+		if strings.HasSuffix(outputFile, ".zip") {
+
+			if err := UnzipFolder(outputFile, strings.TrimSuffix(outputFile, ".zip")); err != nil {
+				return err
+			}
+
+			if err := os.Remove(outputFile); err != nil {
+				return err
+			}
+		}
+
 		err := os.Remove(file)
 		m.Logger.Info("解密完成", "耗时", time.Since(begin))
 		return err
@@ -368,12 +446,21 @@ func NewCLI() *cobra.Command {
 	}
 	killCmd.Flags().StringP("name", "n", "", "进程名列表")
 
+	versionCmd := &cobra.Command{
+		Use:   "version",
+		Short: "版本",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf("pwdgen %s", version.Version)
+		},
+	}
+
 	rootCmd.AddCommand(
 		csv2XykeyCmd,
 		splitFileCmd,
 		encryptFileCmd,
 		decryptFileCmd,
 		killCmd,
+		versionCmd,
 	)
 	return rootCmd
 }
