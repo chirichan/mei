@@ -4,8 +4,9 @@ go 1.24.2
 
 require (
 	github.com/atotto/clipboard v0.1.4
-	github.com/chirichan/rice v0.0.50
+	github.com/chirichan/rice v0.0.51
 	github.com/gocarina/gocsv v0.0.0-20240520201108-78e41c74b4b1
+	github.com/joho/godotenv v1.5.1
 	github.com/spf13/cobra v1.9.1
 )
 
@@ -21,6 +22,7 @@ require (
 	github.com/mozillazg/go-pinyin v0.20.0 // indirect
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
 	github.com/nikoksr/notify v1.3.0 // indirect
+	github.com/oklog/ulid/v2 v2.1.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pquerna/otp v1.5.0 // indirect
 	github.com/qeesung/image2ascii v1.0.1 // indirect
@@ -32,8 +34,8 @@ require (
 	github.com/yitter/idgenerator-go v1.3.3 // indirect
 	golang.org/x/crypto v0.39.0 // indirect
 	golang.org/x/net v0.41.0 // indirect
-	golang.org/x/sync v0.15.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
-	golang.org/x/text v0.26.0 // indirect
+	golang.org/x/sync v0.16.0 // indirect
+	golang.org/x/sys v0.34.0 // indirect
+	golang.org/x/text v0.27.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 )

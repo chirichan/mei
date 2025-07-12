@@ -3,25 +3,29 @@ package main
 import (
 	"archive/zip"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"log/slog"
+	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/atotto/clipboard"
+	"github.com/chirichan/mei/internal/entities"
+	"github.com/chirichan/mei/version"
 	"github.com/chirichan/rice"
 	"github.com/gocarina/gocsv"
+	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
-
-	"github.com/chirichan/mei/cmd/pwdgen/internal/entities"
-	"github.com/chirichan/mei/version"
 )
 
 const Aes256Suffix = ".aes256"
@@ -42,13 +46,14 @@ func (m *PwdGenCLI) Root(cmd *cobra.Command, args []string) {
 	if err != nil {
 		log.Fatalf("full password err: %v", err)
 	}
-	if output == 1 {
+	switch output {
+	case 1:
 		if err := clipboard.WriteAll(s); err != nil {
 			log.Fatalf("err: %v\n", err)
 		}
-	} else if output == 2 {
+	case 2:
 		fmt.Println(s)
-	} else {
+	default:
 		log.Fatalf("output param err: not support %d\n", output)
 	}
 }
@@ -391,6 +396,228 @@ func (m *PwdGenCLI) KillProcess(cmd *cobra.Command, args []string) error {
 	}
 }
 
+func (m *PwdGenCLI) MiNoteExport(cmd *cobra.Command, args []string) error {
+
+	if err := godotenv.Load(".env"); err != nil {
+		slog.WarnContext(cmd.Context(), "没有在当前目录下找到 .env 文件。")
+	}
+
+	minoteCookie := os.Getenv("MINOTE_COOKIE")
+	if minoteCookie == "" {
+		return errors.New("没有找到 MINOTE_COOKIE 环境变量，请参考 .env.example 创建 .env 文件。")
+	}
+
+	startTime := time.Now()
+	timeSuffix := startTime.Format("20060102150405")
+	defer func() {
+		slog.InfoContext(cmd.Context(), "mi note export finished", "cost", time.Since(startTime))
+	}()
+
+	baseUrl := "https://i.mi.com/"
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return err
+	}
+	client := &http.Client{
+		Jar: jar,
+	}
+
+	u, _ := url.Parse(baseUrl)
+
+	var cookies []*http.Cookie
+	parts := strings.SplitSeq(minoteCookie, "; ")
+	for part := range parts {
+		pair := strings.SplitN(part, "=", 2)
+		if len(pair) == 2 {
+			cookies = append(cookies, &http.Cookie{
+				Name:  pair[0],
+				Value: pair[1],
+			})
+		}
+	}
+	jar.SetCookies(u, cookies)
+
+	rice.SetHttpClient(client)
+
+	noteEntries := make([]entities.NoteFullPageRespDataEntry, 0)
+	pageSize := "200"
+	syncTag := ""
+
+	for page := 1; ; page++ {
+		params := url.Values{}
+		params.Set("ts", rice.IntToString(time.Now().UnixMilli()))
+		params.Set("limit", pageSize)
+		params.Set("syncTag", syncTag)
+
+		resp, err := rice.Get[entities.MiNoteResult[entities.NoteFullPageRespData]](
+			cmd.Context(),
+			baseUrl+"note/full/page",
+			params,
+			rice.WithHeader("Cookie", minoteCookie),
+			rice.WithHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"),
+			rice.WithHeader("Referer", "https://i.mi.com/note/h5"),
+		)
+		if err != nil {
+			return err
+		}
+		if !resp.Success() {
+			return fmt.Errorf("request failed, code: %d, result: %s, desc: %s", resp.Code, resp.Result, resp.Description)
+		}
+
+		slog.InfoContext(cmd.Context(), "fetch", "page", page, "length", len(resp.Data.Entries), "is_last", resp.Data.LastPage)
+
+		noteEntries = append(noteEntries, resp.Data.Entries...)
+		syncTag = resp.Data.SyncTag
+
+		if resp.Data.LastPage {
+			break
+		}
+
+	}
+
+	slog.InfoContext(cmd.Context(), "public mi note all fetched", "total", len(noteEntries))
+
+	privateNoteEntries := make([]entities.NoteFullPageRespDataEntry, 0)
+	noteId := ""
+
+	for page := 1; ; page++ {
+		params := url.Values{}
+		params.Set("ts", rice.IntToString(time.Now().UnixMilli()))
+		params.Set("limit", pageSize)
+		params.Set("folderId", "2")
+		params.Set("noteId", noteId)
+
+		resp, err := rice.Get[entities.MiNoteResult[entities.NoteFullPageRespData]](
+			cmd.Context(),
+			baseUrl+"note/full/folder",
+			params,
+			rice.WithHeader("Cookie", minoteCookie),
+			rice.WithHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"),
+			rice.WithHeader("Referer", "https://i.mi.com/note/h5"),
+		)
+		if err != nil {
+			return err
+		}
+		if !resp.Success() {
+			return fmt.Errorf("request failed, code: %d, result: %s, desc: %s", resp.Code, resp.Result, resp.Description)
+		}
+
+		slog.InfoContext(cmd.Context(), "fetch", "page", page, "length", len(resp.Data.Entries), "is_last", resp.Data.LastPage)
+
+		privateNoteEntries = append(privateNoteEntries, resp.Data.Entries...)
+		syncTag = resp.Data.SyncTag
+		noteId = resp.Data.LastNoteId
+
+		if resp.Data.LastPage {
+			break
+		}
+
+	}
+
+	slog.InfoContext(cmd.Context(), "private mi note all fetched", "total", len(privateNoteEntries))
+
+	getIDStr := func(id any) string {
+		var idStr string
+		switch v := id.(type) {
+		case int:
+			idStr = rice.IntToString(v)
+		case int64:
+			idStr = rice.IntToString(v)
+		case float64:
+			idStr = strconv.FormatFloat(v, 'f', 0, 64)
+		case string:
+			idStr = v
+		default:
+			idStr = fmt.Sprintf("%v", v)
+		}
+
+		return idStr
+	}
+
+	var allData []entities.MiNoteCSV
+
+	for index, entry := range append(noteEntries, privateNoteEntries...) {
+		idStr := getIDStr(entry.Id)
+		params := url.Values{}
+		params.Set("ts", rice.IntToString(time.Now().UnixMilli()))
+
+		resp, err := rice.Get[entities.MiNoteResult[entities.MiNoteDetail]](cmd.Context(), baseUrl+fmt.Sprintf("note/note/%s/", idStr), params)
+		if err != nil {
+			return err
+		}
+		if !resp.Success() {
+			return fmt.Errorf("note detail request failed, code: %d, result: %s, desc: %s", resp.Code, resp.Result, resp.Description)
+		}
+
+		id := getIDStr(resp.Data.Entry.Id)
+		tag := getIDStr(resp.Data.Entry.Tag)
+
+		row := entities.MiNoteCSV{
+			Title:      resp.Data.Entry.ExtraInfo.Title,
+			Content:    resp.Data.Entry.Content,
+			Snippet:    resp.Data.Entry.Snippet,
+			Id:         id,
+			Tag:        tag,
+			CreateDate: resp.Data.Entry.CreateDate,
+			ModifyDate: resp.Data.Entry.ModifyDate,
+			Type:       resp.Data.Entry.Type,
+			Data:       resp.Data.Entry.Setting.Data,
+			FolderId:   getIDStr(resp.Data.Entry.FolderId),
+		}
+
+		allData = append(allData, row)
+
+		if len(resp.Data.Entry.Setting.Data) > 0 {
+			for _, fileData := range resp.Data.Entry.Setting.Data {
+				params := url.Values{}
+				params.Set("ts", rice.IntToString(time.Now().UnixMilli()))
+				params.Set("type", "note_img")
+				params.Set("fileid", fileData.FileId)
+
+				fileSuffix := "jpg"
+				if strings.HasPrefix(fileData.MimeType, "image/") {
+					fileSuffix = strings.TrimPrefix(fileData.MimeType, "image/")
+				}
+
+				err := rice.DownloadFile(
+					cmd.Context(),
+					baseUrl+"file/full",
+					params,
+					"./assets-"+timeSuffix,
+					fileData.FileId+"."+fileSuffix,
+					rice.WithHeader("Cookie", minoteCookie),
+					rice.WithHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"),
+					rice.WithHeader("Referer", "https://i.mi.com/note/h5"),
+				)
+				if err != nil {
+					return err
+				}
+				if !resp.Success() {
+					return fmt.Errorf("request failed, code: %d, result: %s, desc: %s", resp.Code, resp.Result, resp.Description)
+				}
+			}
+		}
+
+		slog.InfoContext(cmd.Context(), "mi note entry fetched", "index", index, "id", id)
+	}
+
+	bytes, err := json.Marshal(allData)
+	if err != nil {
+		return err
+	}
+
+	filename := fmt.Sprintf("minote-%s.json", timeSuffix)
+	err = os.WriteFile(filename, bytes, 0644)
+	if err != nil {
+		return err
+	}
+
+	slog.InfoContext(cmd.Context(), "mi note export success", "count", len(allData), "output", filename)
+
+	return nil
+}
+
 func NewCLI() *cobra.Command {
 	muCLI := &PwdGenCLI{Logger: slog.Default()}
 
@@ -446,6 +673,13 @@ func NewCLI() *cobra.Command {
 	}
 	killCmd.Flags().StringP("name", "n", "", "进程名列表")
 
+	miNoteExportCmd := &cobra.Command{
+		Use:   "minoteexport",
+		Short: "导出小米便签",
+		RunE:  muCLI.MiNoteExport,
+	}
+	miNoteExportCmd.Flags().StringP("format", "f", "json", "导出格式, 目前仅支持 json")
+
 	versionCmd := &cobra.Command{
 		Use:   "version",
 		Short: "版本",
@@ -461,6 +695,7 @@ func NewCLI() *cobra.Command {
 		decryptFileCmd,
 		killCmd,
 		versionCmd,
+		miNoteExportCmd,
 	)
 	return rootCmd
 }
