@@ -114,21 +114,22 @@ func setLevel(level, length int) fullPasswordConf {
 
 	var fullConf fullPasswordConf
 
-	if level == 1 {
+	switch level {
+	case 1:
 		fullConf.NumDigits = length
-	} else if level == 2 {
+	case 2:
 		fullConf.NumLowerLetters = length / 2
 		fullConf.NumDigits = length - fullConf.NumLowerLetters
-	} else if level == 3 {
+	case 3:
 		fullConf.NumDigits = length / 3
 		fullConf.NumUpperLetters = (length - fullConf.NumDigits) / 2
 		fullConf.NumLowerLetters = length - fullConf.NumDigits - fullConf.NumUpperLetters
-	} else if level == 4 {
+	case 4:
 		fullConf.NumDigits = length / 5
 		fullConf.NumUpperLetters = length / 4
 		fullConf.NumLowerLetters = length / 4
 		fullConf.NumSymbols = length - fullConf.NumDigits - fullConf.NumUpperLetters - fullConf.NumLowerLetters
-	} else {
+	default:
 		fullConf.Length = _defaultLength
 		fullConf.NumLowerLetters = _defaultNumLowerLetters
 		fullConf.NumUpperLetters = _defaultNumUpperLetters

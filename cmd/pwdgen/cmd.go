@@ -35,10 +35,6 @@ type PwdGenCLI struct {
 }
 
 func (m *PwdGenCLI) Root(cmd *cobra.Command, args []string) {
-	if v, _ := cmd.Flags().GetBool("version"); v {
-		fmt.Printf("pwdgen version is %s", version.Version)
-		return
-	}
 	length, _ := cmd.Flags().GetInt("length")
 	level, _ := cmd.Flags().GetInt("level")
 	output, _ := cmd.Flags().GetInt("output")
@@ -124,6 +120,7 @@ func (m *PwdGenCLI) EncryptFile(cmd *cobra.Command, args []string) error {
 	key, _ := cmd.Flags().GetString("key")
 	file, _ := cmd.Flags().GetString("file")
 	text, _ := cmd.Flags().GetString("text")
+	outputDir, _ := cmd.Flags().GetString("output-dir")
 	begin := time.Now()
 
 	if genKey {
@@ -152,12 +149,21 @@ func (m *PwdGenCLI) EncryptFile(cmd *cobra.Command, args []string) error {
 	if !rice.PathExists(file) {
 		return fmt.Errorf("文件或文件夹不存在, file: %s", file)
 	}
+	if !rice.PathExists(outputDir) {
+		return fmt.Errorf("输出目录不存在, output-dir: %s", outputDir)
+	}
+	if !rice.PathIsDir(outputDir) {
+		return fmt.Errorf("输出路径不是文件夹, output-dir: %s", outputDir)
+	}
+	absOutputDir, err := filepath.Abs(outputDir)
+	if err != nil {
+		return fmt.Errorf("parse output-dir err: %w", err)
+	}
 
 	if rice.PathIsDir(file) {
 
-		absPath, _ := filepath.Abs(file)
-		parentPath := filepath.Dir(absPath)
-		zipFilename := filepath.Join(parentPath, filepath.Base(file)+".zip")
+		zipFilename := filepath.Join(absOutputDir, filepath.Base(file)+".zip")
+		encryptOutput := zipFilename + Aes256Suffix
 
 		if err := ZipFolder(file, zipFilename); err != nil {
 			m.Logger.Error("zip folder err", "err", err)
@@ -166,20 +172,21 @@ func (m *PwdGenCLI) EncryptFile(cmd *cobra.Command, args []string) error {
 
 		m.Logger.Info("zip folder success", "file", file, "cost", time.Since(begin), "zip_filename", zipFilename)
 
-		if err := rice.AESGCMEncryptFile(key, zipFilename, zipFilename+Aes256Suffix); err != nil {
+		if err := rice.AESGCMEncryptFile(key, zipFilename, encryptOutput); err != nil {
 			return err
 		}
 		if err := os.Remove(zipFilename); err != nil {
 			return err
 		}
-		m.Logger.Info("encrypt folder success", "cost", time.Since(begin), "output", zipFilename+Aes256Suffix)
+		m.Logger.Info("encrypt folder success", "cost", time.Since(begin), "output", encryptOutput)
 
 	} else {
-		if err := rice.AESGCMEncryptFile(key, file, file+Aes256Suffix); err != nil {
+		encryptOutput := filepath.Join(absOutputDir, filepath.Base(file)+Aes256Suffix)
+		if err := rice.AESGCMEncryptFile(key, file, encryptOutput); err != nil {
 			return err
 		}
 		err := os.Remove(file)
-		m.Logger.Info("encrypt file success", "cost", time.Since(begin), "output", file+Aes256Suffix)
+		m.Logger.Info("encrypt file success", "cost", time.Since(begin), "output", encryptOutput)
 		return err
 	}
 
@@ -626,7 +633,6 @@ func NewCLI() *cobra.Command {
 		Short: "生成随机密码",
 		Run:   muCLI.Root,
 	}
-	rootCmd.Flags().BoolP("version", "v", false, "版本")
 	rootCmd.Flags().IntP("length", "n", 16, "生成的密码长度, [6, 2048]")
 	rootCmd.Flags().IntP("level", "l", 4, "生成的密码强度等级, 数字越大, 强度越高, [1, 4]")
 	rootCmd.Flags().IntP("output", "o", 1, "输出方式, 1: 剪贴板, 2: 控制台")
@@ -654,6 +660,7 @@ func NewCLI() *cobra.Command {
 	encryptFileCmd.Flags().StringP("key", "k", "", "加密所需的密钥。如果不指定，则从环境变量 \"MEI_AES_KEY\" 中获取")
 	encryptFileCmd.Flags().StringP("file", "f", "", "要加密的文件或文件夹")
 	encryptFileCmd.Flags().StringP("text", "t", "", "要加密的文本")
+	encryptFileCmd.Flags().String("output-dir", ".", "加密输出目录，默认当前目录")
 	encryptFileCmd.Flags().StringP("ignore", "i", "", "ignore 文件【暂未实现】")
 
 	decryptFileCmd := &cobra.Command{
@@ -684,7 +691,7 @@ func NewCLI() *cobra.Command {
 		Use:   "version",
 		Short: "版本",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("pwdgen %s", version.Version)
+			fmt.Printf("pwdgen %s\ngit commit: %s\nbuild time: %s\n", version.Version, version.GitCommit, version.BuildTime)
 		},
 	}
 
