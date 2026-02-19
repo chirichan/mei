@@ -691,7 +691,11 @@ func NewCLI() *cobra.Command {
 		Use:   "version",
 		Short: "版本",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("pwdgen %s\ngit commit: %s\nbuild time: %s\n", version.Version, version.GitCommit, version.BuildTime)
+			fmt.Printf("pwdgen %s\ngit commit: %s\nbuild time: %s\n",
+				version.ResolvedVersion(),
+				version.ResolvedGitCommit(),
+				version.ResolvedBuildTime(),
+			)
 		},
 	}
 
