@@ -1,4 +1,4 @@
 interface:
   display_name: "ZMHSIGN Sign-in"
-  short_description: "Run the local manga website daily sign-in CLI."
+  short_description: "Run the cross-platform manga website sign-in CLI."
   default_prompt: "Use $zmhsign to run or schedule the local manga site sign-in command."

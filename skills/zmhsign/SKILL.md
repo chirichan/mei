@@ -1,18 +1,51 @@
 ---
 name: zmhsign
-description: Run and manage the locally installed zmhsign.exe command-line program for a manga/comic website daily sign-in. Use when the user asks to sign in, check in, run the comic site sign-in, start or stop scheduled/daemon sign-in, configure or reuse Windows ZAI_USER/ZAI_PASS credentials, or troubleshoot zmhsign.exe flags such as --user, --pass, --serve, --time, and --no-first. Always check Process/User/Machine environment scopes before asking for credentials.
+description: Run and manage the locally installed zmhsign command-line program for a manga/comic website daily sign-in on Windows, macOS, or Linux. Use when the user asks to sign in, check in, run the comic site sign-in, start or stop scheduled/daemon sign-in, configure or reuse ZAI_USER/ZAI_PASS credentials, or troubleshoot zmhsign flags such as -user, -pass, -serve, -time, and -no-first. On Windows, check Process/User/Machine environment scopes before asking for credentials; on macOS/Linux, check the current process environment before asking.
 ---
 
 # ZMHSIGN
 
-Use this skill to run the user's locally installed `zmhsign.exe` manga site sign-in tool from PowerShell. The user may already have `ZAI_USER` and `ZAI_PASS` configured in Windows user-level or machine-level environment variables.
+Use this skill to run the user's locally installed `zmhsign` manga site sign-in CLI.
+
+## Platform Rules
+
+Use the executable name that matches the operating system:
+
+```text
+Windows:      zmhsign.exe
+macOS/Linux:  zmhsign
+```
+
+Do not assume a local installation path, username, home directory, Go workspace, or shell profile path. Prefer `PATH` discovery first. If the executable is not discoverable, ask the user for the installed executable path or ask them to add the install directory to `PATH`.
 
 ## Command
 
-The installed program should usually be discoverable from `PATH`:
+Check whether the command is available.
+
+Windows PowerShell:
+
+```powershell
+Get-Command zmhsign.exe
+```
+
+macOS/Linux shell:
+
+```sh
+command -v zmhsign
+```
+
+Show help.
+
+Windows PowerShell:
 
 ```powershell
 zmhsign.exe -h
+```
+
+macOS/Linux shell:
+
+```sh
+zmhsign -h
 ```
 
 Supported flags:
@@ -32,11 +65,15 @@ ZAI_USER
 ZAI_PASS
 ```
 
-## Workflow
+## Credential Rules
 
-Prefer existing Windows environment variables for credentials instead of asking the user. Do not request `ZAI_USER` or `ZAI_PASS` until all three scopes have been checked: `Process`, `User`, and `Machine`.
+Prefer existing environment variables for credentials instead of asking the user. Do not request `ZAI_USER` or `ZAI_PASS` until the platform-appropriate checks below have been performed.
 
-Refresh credentials into the current PowerShell process before running `zmhsign.exe`. This handles Codex or shell sessions that do not already inherit newly configured Windows environment variables:
+If the user provides credentials in chat, use them only for the immediate command needed to complete the request. Do not store them in the skill, repository, logs, shell profile, or documentation unless the user explicitly asks to persist them. Do not print `ZAI_PASS` in command output or status summaries.
+
+## Windows Workflow
+
+On Windows, check `Process`, `User`, and `Machine` environment scopes. Refresh credentials into the current PowerShell process before running `zmhsign.exe`; this handles sessions that do not already inherit newly configured Windows environment variables.
 
 ```powershell
 $zaiUser = [Environment]::GetEnvironmentVariable("ZAI_USER", "Process")
@@ -63,57 +100,76 @@ $env:ZAI_USER = $zaiUser
 $env:ZAI_PASS = $zaiPass
 ```
 
-For a one-time sign-in:
+Run once:
 
 ```powershell
 zmhsign.exe
 ```
 
-For a daemon that runs immediately and then every day at 09:00:
+Run as a daemon immediately and then every day at 09:00:
 
 ```powershell
 zmhsign.exe -serve -time 09:00
 ```
 
-For a daemon that waits until the next scheduled time without an immediate first run:
+Run as a daemon without an immediate first run:
 
 ```powershell
 zmhsign.exe -serve -time 09:00 -no-first
 ```
 
-If the user provides credentials in chat, use them only for the immediate command needed to complete the request. Do not store them in the skill, repository, logs, or documentation. Do not print `ZAI_PASS` in command output or status summaries.
-
-## Checks
-
-Before running the command, verify that `zmhsign.exe` is available:
-
-```powershell
-Get-Command zmhsign.exe
-```
-
-If it is not on `PATH`, do not assume a local user path. Ask the user for the installed executable path, or ask them to add the directory containing `zmhsign.exe` to `PATH`. If they provide an explicit path, use that path only for the current task and do not write it back into the skill.
+If the executable is not on `PATH` and the user provides a path, invoke it with PowerShell's call operator:
 
 ```powershell
 & "<path-to-zmhsign.exe>" -h
 ```
 
-Check all Windows environment variable scopes before asking for credentials:
+## macOS/Linux Workflow
 
-```powershell
-[Environment]::GetEnvironmentVariable("ZAI_USER", "Process")
-[Environment]::GetEnvironmentVariable("ZAI_USER", "User")
-[Environment]::GetEnvironmentVariable("ZAI_USER", "Machine")
-[Environment]::GetEnvironmentVariable("ZAI_PASS", "Process") -ne $null
-[Environment]::GetEnvironmentVariable("ZAI_PASS", "User") -ne $null
-[Environment]::GetEnvironmentVariable("ZAI_PASS", "Machine") -ne $null
+On macOS and Linux, use the current process environment. Check for credentials before asking the user:
+
+```sh
+test -n "$ZAI_USER" && test -n "$ZAI_PASS"
 ```
 
-Only ask the user for credentials if `ZAI_USER` or `ZAI_PASS` is absent from `Process`, `User`, and `Machine`. If values exist in `User` or `Machine` but not `Process`, copy them into `$env:ZAI_USER` and `$env:ZAI_PASS` for the current command instead of asking.
+Run once:
+
+```sh
+zmhsign
+```
+
+Run as a daemon immediately and then every day at 09:00:
+
+```sh
+zmhsign -serve -time 09:00
+```
+
+Run as a daemon without an immediate first run:
+
+```sh
+zmhsign -serve -time 09:00 -no-first
+```
+
+For a one-off command with credentials supplied by the user, prefer inline environment variables for the child process instead of writing to a shell profile:
+
+```sh
+ZAI_USER="<username>" ZAI_PASS="<password>" zmhsign
+```
+
+If the executable is not on `PATH` and the user provides a path, invoke that path directly:
+
+```sh
+"<path-to-zmhsign>" -h
+```
 
 ## Troubleshooting
 
-If the program prints usage text, credentials were probably missing or empty in the child process. Re-run the environment refresh block from the Workflow section, then run `zmhsign.exe` again.
+If the program prints usage text, credentials were probably missing or empty in the child process. Re-run the platform-specific credential checks, then run the command again.
 
-If the user asks for daily unattended execution, explain that `-serve` keeps the process running in the current session. For a persistent Windows startup or Task Scheduler setup, create a separate scheduler workflow only after the user asks for it.
+If macOS/Linux reports `permission denied`, ask the user whether they want to mark the binary executable, then run `chmod +x <path-to-zmhsign>` only with their approval.
+
+If macOS/Linux reports `command not found`, verify `command -v zmhsign`; if missing, ask for the install path or ask the user to add the binary directory to `PATH`.
+
+If the user asks for daily unattended execution, explain that `-serve` keeps the process running in the current session. For persistent startup, use a platform-specific supervisor only after the user asks for it: Windows Task Scheduler, macOS launchd, or Linux systemd/cron.
 
 If the user asks to stop the daemon, find the running `zmhsign` process and confirm before terminating it unless they explicitly requested the stop action.
